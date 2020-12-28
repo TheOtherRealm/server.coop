@@ -1,0 +1,1 @@
+node ls --format {{json .}} -f role=manager

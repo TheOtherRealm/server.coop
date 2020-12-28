@@ -1,0 +1,43 @@
+version: '3.8'
+services:
+  mysql:
+    image: mysql:latest
+    container_name: mysql
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - db-data:/var/lib/mysql
+  drupal:
+    image: drupal:fpm-alpine
+    container_name: drupal
+    depends_on:
+      - mysql
+    restart: unless-stopped
+    volumes:
+      - drupal-data:/var/www/html
+  webserver:
+    image: nginx:latest
+    container_name: webserver
+    depends_on:
+      - drupal
+    restart: unless-stopped
+    volumes:
+      - drupal-data:/var/www/html
+      - ./nginx-conf:/etc/nginx/conf.d
+      - certbot-etc:/etc/letsencrypt
+    ports:
+      - "443:443"
+      - "80:80"
+  certbot:
+    depends_on:
+      - webserver
+    image: certbot/certbot
+    container_name: certbot
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - drupal-data:/var/www/html
+    command: certonly --webroot --webroot-path=/var/www/html --debug --email the@otherrealm.org --agree-tos --no-eff-email --server https://acme-v02.api.letsencrypt.org/directory -d servers.otherrealm.org
+volumes:
+  drupal-data:
+  db-data:
+  certbot-etc:

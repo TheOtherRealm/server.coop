@@ -1,0 +1,27 @@
+version: '3.8'
+services:
+  basictest:
+    image: ubuntu:latest
+    environment:
+      - TZ=America/New_York
+    volumes:
+      - /vagrant/nodered:/data
+    networks:
+      - traefik-public
+    deploy:
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-public
+        - traefik.constraint-label=traefik-public
+        - traefik.http.routers.nodered-http.rule=Host(`nodered.otherrealm.org`)
+        - traefik.http.routers.nodered-http.entrypoints=http
+        - traefik.http.routers.nodered-http.middlewares=https-redirect
+        - traefik.http.routers.nodered-https.rule=Host(`nodered.otherrealm.org`)
+        - traefik.http.routers.nodered-https.entrypoints=https
+        - traefik.http.routers.nodered-https.tls=true
+        - traefik.http.routers.nodered-https.tls.certresolver=le
+        - traefik.http.services.nodered.loadbalancer.server.port=8080
+networks:
+  traefik-public:
+    external: true
+    

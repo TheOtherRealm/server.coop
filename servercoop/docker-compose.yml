@@ -1,0 +1,78 @@
+version: '3.8'
+services:
+  mysql:
+    image: mysql:latest
+    container_name: mysql
+    env_file: .env
+    volumes:
+      - db-data:/var/lib/mysql
+    # networks:
+    #   - net
+    deploy:
+      restart_policy:
+        condition: on-failure
+      # labels:
+      #   - traefik.enable=false
+  drupal:
+    image: drupal:fpm-alpine
+    container_name: drupal
+    depends_on:
+      - mysql
+    deploy:
+      restart_policy:
+        condition: on-failure
+    # networks:
+    #   - net
+    #   - traefik-public
+    volumes:
+      - drupal-data:/var/www/html
+  webserver:
+    image: nginx:latest
+    container_name: webserver
+    depends_on:
+      - drupal
+    # networks:
+    #   - net
+    #   - traefik-public
+    deploy:
+      restart_policy:
+        condition: on-failure
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-public
+        - traefik.constraint-label=traefik-public
+        - traefik.http.routers.swarmpit-http.rule=Host(`${DOMAINSERVER?Variable not set}`)
+        - traefik.http.routers.swarmpit-http.entrypoints=http
+        - traefik.http.routers.swarmpit-http.middlewares=https-redirect
+        - traefik.http.routers.swarmpit-https.rule=Host(`${DOMAINSERVER?Variable not set}`)
+        - traefik.http.routers.swarmpit-https.entrypoints=https
+        - traefik.http.routers.swarmpit-https.tls=true
+        - traefik.http.routers.swarmpit-https.tls.certresolver=le
+        - traefik.http.services.swarmpit.loadbalancer.server.port=8080
+    # restart: unless-stopped
+    env_file: .env
+    volumes:
+      - drupal-data:/var/www/html
+      - ./nginx-conf:/etc/nginx/conf.d
+      # - certbot-etc:/etc/letsencrypt
+  # certbot:
+  #   depends_on:
+  #     - webserver
+  #   image: certbot/certbot
+  #   container_name: certbot
+  #   # networks:
+  #   #   - net
+  #   volumes:
+  #     - certbot-etc:/etc/letsencrypt
+  #     - drupal-data:/var/www/html
+  #   command: certonly --webroot --webroot-path=/var/www/html --debug --email the@otherrealm.org --agree-tos --no-eff-email --server https://acme-staging-v02.api.letsencrypt.org/directory -d servers.otherrealm.org
+# networks:
+#   net:
+#     driver: overlay
+#     attachable: true
+#   traefik-public:
+#     external: true
+volumes:
+  drupal-data:
+  db-data:
+  # certbot-etc:
