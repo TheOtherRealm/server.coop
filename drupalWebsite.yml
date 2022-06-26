@@ -1,0 +1,89 @@
+version: '3.8'
+services:
+  db:
+    image: mariadb
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    volumes:
+      - db:/var/lib/mysql
+      - ../drupalWebsite/mysqllogs/:/var/log/mysql
+    env_file: 
+      - ../secrets/.env
+    networks:
+      - net
+    # ports:
+    #   - 3306:3306
+    deploy:
+      restart_policy:
+        condition: on-failure
+  drupal:
+    image: drupalwebsite:latest 
+    env_file: 
+    - ../secrets/.env
+    depends_on:
+      - db
+    deploy:
+      restart_policy:
+        condition: on-failure
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-public
+        - traefik.constraint-label=traefik-public
+        - traefik.http.routers.drupal-http.rule=Host(`server.otherrealm.org`)
+        - traefik.http.routers.drupal-http.entrypoints=http
+        - traefik.http.routers.drupal-http.middlewares=https-redirect
+        - traefik.http.routers.drupal-https.rule=Host(`server.otherrealm.org`)
+        - traefik.http.routers.drupal-https.entrypoints=https
+        - traefik.http.routers.drupal-https.tls=true
+        - traefik.http.routers.drupal-https.tls.certresolver=le
+        - traefik.http.services.drupal.loadbalancer.server.port=80
+        - traefik.http.middlewares.drupal-http2https.redirectscheme.scheme=https
+        - traefik.http.middlewares.drupal-http2https.redirectscheme.permanent=true
+        - traefik.http.routers.drupal-http.middlewares=drupal-http2https
+    volumes:
+      - drupal:/opt/drupal/
+    networks:
+      - traefik-public
+      - net
+  phpmyadmin:
+    image: phpmyadmin:latest
+    ports:
+      - 8080:80
+    env_file: 
+    - ../secrets/.env
+    environment:
+      - PMA_ABSOLUTE_URI=phpmyadmin.otherrealm.org
+      - PMA_PORT=3306
+    depends_on:
+      - db
+    networks:
+      - traefik-public
+      - net
+    volumes:
+      - ../drupalWebsite/config/:/etc/phpmyadmin/
+    deploy:
+      restart_policy:
+        condition: on-failure
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-public
+        - traefik.constraint-label=traefik-public
+        - traefik.http.routers.phpmyadmin-http.rule=Host(`phpmyadmin.otherrealm.org`)
+        - traefik.http.routers.phpmyadmin-http.entrypoints=http
+        - traefik.http.routers.phpmyadmin-http.middlewares=https-redirect
+        - traefik.http.routers.phpmyadmin-https.rule=Host(`phpmyadmin.otherrealm.org`)
+        - traefik.http.routers.phpmyadmin-https.entrypoints=https
+        - traefik.http.routers.phpmyadmin-https.tls=true
+        - traefik.http.routers.phpmyadmin-https.tls.certresolver=le
+        - traefik.http.services.phpmyadmin.loadbalancer.server.port=80
+        - traefik.http.middlewares.phpmyadmin-http2https.redirectscheme.scheme=https
+        - traefik.http.middlewares.phpmyadmin-http2https.redirectscheme.permanent=true
+        - traefik.http.routers.phpmyadmin-http.middlewares=phpmyadmin-http2https
+networks:
+  net:  #db-10.0.20.3
+    driver: overlay
+    attachable: true
+  traefik-public:
+    external: true
+volumes:
+  drupal:
+  db:

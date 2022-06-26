@@ -1,27 +1,29 @@
-version: '3.8'
+version: '3.9'
 services:
   db:
     image: mariadb
     command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
     volumes:
       - db:/var/lib/mysql
-      - ./mysqllogs/:/var/log/mysql
-    environment:
-      - MYSQL_ROOT_PASSWORD=!fdhgrthfdhfdhfddrth54fdhgrthfdhfdhfddrth54y75u6j54!
+      - ../nextcloud_log/mysqllogs/:/var/log/mysql
     env_file:
-      - nc.env
+      - ../secrets/nc.env
     networks:
+      # - traefik-public
       - net
     deploy:
       restart_policy:
         condition: on-failure
   app:
-    image: nextcloud:apache
+    image: nextcloud:latest
     security_opt:
       - no-new-privileges:true
+    command:
+      - --sh -c "apt-get install clamav clamav-daemon"
     volumes:
-      - ./nextcloud/:/var/www/html
-      - ./nextcloudLogs/:/var/log/apache2
+      - ../nextcloud/:/var/www/html/
+      - data:/var/www/html/data
+      - ../nextcloud_log/:/var/log/apache2
     networks:
       - traefik-public
       - net
@@ -33,11 +35,9 @@ services:
         - traefik.docker.network=traefik-public
         - traefik.constraint-label=traefik-public
         - traefik.http.routers.nextcloud-http.rule=Host(`next.otherrealm.org`)
-        - traefik.http.routers.nextcloud-http.service=nextcloud
         - traefik.http.routers.nextcloud-http.entrypoints=http
         - traefik.http.routers.nextcloud-http.middlewares=https-redirect
         - traefik.http.routers.nextcloud-https.rule=Host(`next.otherrealm.org`)
-        - traefik.http.routers.nextcloud-https.service=nextcloud
         - traefik.http.routers.nextcloud-https.entrypoints=https
         - traefik.http.routers.nextcloud-https.tls=true
         - traefik.http.routers.nextcloud-https.tls.certresolver=le
@@ -45,17 +45,55 @@ services:
         - traefik.http.middlewares.nextcloud-http2https.redirectscheme.scheme=https
         - traefik.http.middlewares.nextcloud-http2https.redirectscheme.permanent=true
         - traefik.http.routers.nextcloud-http.middlewares=nextcloud-http2https
+    env_file:
+      - ../secrets/nc.env
     environment:
-      - MYSQL_HOST=db
+      # - MYSQL_HOST=db
       - extra_params=--o:ssl.enable=false  
       - o:ssl.termination=true
+    depends_on:
+      - db
+  collabora:
+    image: collabora/code:latest
+    restart: always
+    labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-public
+        - traefik.constraint-label=traefik-public
+        - traefik.http.routers.collabora-http.rule=Host(`next.otherrealm.org`)
+        - traefik.http.routers.collabora-http.service=collabora
+        - traefik.http.routers.collabora-http.entrypoints=http
+        - traefik.http.routers.collabora-http.middlewares=https-redirect
+        - traefik.http.routers.collabora-https.rule=Host(`next.otherrealm.org`)
+        - traefik.http.routers.collabora-https.service=collabora
+        - traefik.http.routers.collabora-https.entrypoints=https
+        - traefik.http.routers.collabora-https.tls=true
+        - traefik.http.routers.collabora-https.tls.certresolver=le
+        - traefik.http.services.collabora.loadbalancer.server.port=9980
+        - traefik.http.middlewares.collabora-http2https.redirectscheme.scheme=https
+        - traefik.http.middlewares.collabora-http2https.redirectscheme.permanent=true
+        - traefik.http.routers.collabora-http.middlewares=collabora-http2https
+    networks:
+      - traefik-public
+      - net
     env_file:
-      - nc.env
+      - ../secrets/nc.env
+    environment:
+      - extra_params=--o:ssl.enable=true
+      - o:ssl.termination=true
+      - domain=next.otherrealm.org
+      - VIRTUAL_HOST=next.otherrealm.org
+      - LETSENCRYPT_HOST=next.otherrealm.org
+      - LETSENCRYPT_EMAIL=the@otherrealm.org
+    ports:
+      - 9980:9980
+    expose:
+      - 9980
     depends_on:
       - db
 volumes:
   db:
-  nextcloud:
+  data:
 networks:
   net:
     driver: overlay

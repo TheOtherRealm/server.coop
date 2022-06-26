@@ -1,0 +1,205 @@
+version: '3.9'
+services:
+  traefik:
+    # Use the latest v2.2.x Traefik image available
+    image: traefik:latest
+    env_file: ../secrets/.env
+    ports:
+      # Listen on port 80, default for HTTP, necessary to redirect to HTTPS
+      - 80:80
+      # Listen on port 443, default for HTTPS
+      - 443:443
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    deploy:
+      placement:
+        constraints:
+          # Make the traefik service run only on the node with this label
+          # as the node with it has the volume for the certificates
+          - node.labels.traefik-public.traefik-public-certificates == true
+          - node.role == manager
+      labels:
+        # Enable Traefik for this service, to make it available in the public network
+        - traefik.enable=true
+        # Use the traefik-public network (declared below)
+        - traefik.docker.network=traefik-public
+        # Use the custom label traefik.constraint-label=traefik-public
+        # When you first create the network, you need to create the node id
+        # A.K.A:  export NODE_ID=$(docker info -f '{{.Swarm.NodeID}}')
+        #         docker node update --label-add traefik-public.traefik-public-certificates=true $NODE_ID
+        # This public Traefik will only use services with this label
+        # That way you can add other internal Traefik instances per stack if needed
+        - traefik.constraint-label=traefik-public
+        # admin-auth middleware with HTTP Basic auth
+        # Using the variables in the .env
+        - traefik.http.middlewares.admin-auth.basicauth.users=[Your Hashed Password]
+        # https-redirect middleware to redirect HTTP to HTTPS
+        # It can be re-used by other stacks in other Docker Compose files
+        - traefik.http.middlewares.https-redirect.redirectscheme.scheme=https
+        - traefik.http.middlewares.https-redirect.redirectscheme.permanent=true
+        # traefik-http set up only to use the middleware to redirect to https
+        # Uses the environment variable DOMAIN
+        - traefik.http.routers.traefik-public-http.rule=Host(`traefik.[Your URL].org`)
+        - traefik.http.routers.traefik-public-http.entrypoints=http
+        - traefik.http.routers.traefik-public-http.middlewares=https-redirect
+        # traefik-https the actual router using HTTPS
+        # Uses the environment variable DOMAIN
+        - traefik.http.routers.traefik-public-https.rule=Host(`traefik.[Your URL].org`)
+        - traefik.http.routers.traefik-public-https.entrypoints=https
+        - traefik.http.routers.traefik-public-https.tls=true
+        # Use the special Traefik service api@internal with the web UI/Dashboard
+        - traefik.http.routers.traefik-public-https.service=api@internal
+        # Use the le (Let's Encrypt) resolver created below
+        - traefik.http.routers.traefik-public-https.tls.certresolver=le
+        # Enable HTTP Basic auth, using the middleware created above
+        - traefik.http.routers.traefik-public-https.middlewares=admin-auth
+        # Define the port inside of the Docker service to use
+        - traefik.http.services.traefik-public.loadbalancer.server.port=8080
+        ## Headers
+        # Secure things by adding a number of security headers
+        - traefik.http.routers.traefik-public.middlewares=traefik-headers,middlewares-rate-limit@file,middlewares-basic-auth@file
+        - traefik.http.middlewares.traefik-headers.headers.accesscontrolallowmethods=GET, OPTIONS, PUT
+        - traefik.http.middlewares.traefik-headers.headers.accesscontrolalloworiginlist=[Your URL]
+        - traefik.http.middlewares.traefik-headers.headers.accesscontrolmaxage=100
+        - traefik.http.middlewares.traefik-headers.headers.addvaryheader=true
+        - traefik.http.middlewares.traefik-headers.headers.allowedhosts=[Your URL]
+        - traefik.http.middlewares.traefik-headers.headers.hostsproxyheaders=X-Forwarded-Host
+        - traefik.http.middlewares.traefik-headers.headers.sslredirect=true
+        - traefik.http.middlewares.traefik-headers.headers.sslhost=[Your URL]
+        - traefik.http.middlewares.traefik-headers.headers.sslforcehost=true
+        - traefik.http.middlewares.traefik-headers.headers.sslproxyheaders.X-Forwarded-Proto=https
+        - traefik.http.middlewares.traefik-headers.headers.stsseconds=63072000
+        - traefik.http.middlewares.traefik-headers.headers.stsincludesubdomains=true
+        - traefik.http.middlewares.traefik-headers.headers.stspreload=true
+        - traefik.http.middlewares.traefik-headers.headers.forcestsheader=true
+        - traefik.http.middlewares.traefik-headers.headers.framedeny=true
+  #      - traefik.http.middlewares.traefik-headers.headers.customframeoptionsvalue=SAMEORIGIN # This option overrides FrameDeny
+        - traefik.http.middlewares.traefik-headers.headers.contenttypenosniff=true
+        - traefik.http.middlewares.traefik-headers.headers.browserxssfilter=true
+  #      - traefik.http.middlewares.traefik-headers.headers.contentsecuritypolicy=frame-ancestors 'none'; object-src 'none'; base-uri 'none';
+        - traefik.http.middlewares.traefik-headers.headers.referrerpolicy=same-origin
+        - traefik.http.middlewares.traefik-headers.headers.featurepolicy=camera 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'; vr 'none';
+        - traefik.http.middlewares.traefik-headers.headers.customresponseheaders.X-Robots-Tag=none,noarchive,nosnippet,notranslate,noimageindex,
+        # - traefik.http.middlewares.nextcloud-redirectregex.redirectRegex.permanent=true
+        # - traefik.http.middlewares.nextcloud-redirectregex.redirectRegex.regex="https://(.*)/.well-known/(card|cal)dav"
+        # - traefik.http.middlewares.nextcloud-redirectregex.redirectRegex.replacement = "https://$${1}/remote.php/dav/"
+    volumes:
+      # Add Docker as a mounted volume, so that Traefik can read the labels of other services
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Mount the volume to store the certificates
+      - traefik-public-certificates:/certificates/
+    command:
+      # Enable Docker in Traefik, so that it reads labels from Docker services
+      - --providers.docker
+      # Add a constraint to only use services with the label traefik.constraint-label=traefik-public
+      - --providers.docker.constraints=Label(`traefik.constraint-label`, `traefik-public`)
+      # Do not expose all Docker services, only the ones explicitly exposed
+      - --providers.docker.exposedbydefault=false
+      # Enable Docker Swarm mode
+      - --providers.docker.swarmmode=true
+      # Create an entrypoint http listening on port 80
+      - --entrypoints.http.address=:80
+      # Create an entrypoint https listening on port 443
+      - --entrypoints.https.address=:443
+      # Use staging during dev
+      - --certificatesresolvers.le.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+      # Create the certificate resolver le for Let's Encrypt, uses the environment variable EMAIL
+      - --certificatesresolvers.le.acme.email=[Your email]
+      # Store the Let's Encrypt certificates in the mounted volume
+      - --certificatesresolvers.le.acme.storage=/certificates/acme.json
+      # Use the TLS Challenge for Let's Encrypt
+      - --certificatesresolvers.le.acme.tlschallenge=true    
+      # Enable the access log, with HTTP requests
+      - --accesslog
+      # Enable the Traefik log, for configurations and errors
+      - --log
+      # Enable the Dashboard and API
+      - --api
+    networks:
+      # Use the public network created to be shared between Traefik and
+      # any other service that needs to be publicly available with HTTPS
+      - traefik-public
+  agent:
+    image: portainer/agent:latest
+    environment:
+      # REQUIRED: Should be equal to the service name prefixed by "tasks." when
+      # deployed inside an overlay network
+      AGENT_CLUSTER_ADDR: tasks.agent
+      # AGENT_PORT: 9001
+      # LOG_LEVEL: debug
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+    networks:
+      - agent_network
+    deploy:
+      mode: global
+      placement:
+        constraints: [node.platform.os == linux]
+  portainer:
+    image: portainer/portainer-ce:latest
+    command: -H tcp://tasks.agent:9001 --tlsskipverify
+    restart: unless-stopped
+    ports:
+      - "9443:9443"
+      - "9000:9000"
+      - "8000:8000"
+    volumes:
+      - portainer_data:/data
+    networks:
+      - traefik-public
+      - agent_network
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      labels:
+        - traefik.enable=true
+        ## HTTP Routers
+        - traefik.docker.network=traefik-public
+        - traefik.constraint-label=traefik-public
+        - traefik.http.routers.portainer-http.rule=Host(`portainer.[Your URL].org`)
+        - traefik.http.routers.portainer-http.service=portainer
+        - traefik.http.routers.portainer-http.entrypoints=http
+        - traefik.http.routers.portainer-http.middlewares=https-redirect
+        - traefik.http.routers.portainer-https.rule=Host(`portainer.[Your URL].org`)
+        - traefik.http.routers.portainer-https.service=portainer
+        - traefik.http.routers.portainer-https.entrypoints=https
+        - traefik.http.routers.portainer-https.tls=true
+        - traefik.http.routers.portainer-https.tls.certresolver=le
+        - traefik.http.services.portainer.loadbalancer.server.port=9000
+        - traefik.http.middlewares.portainer-http2https.redirectscheme.scheme=https
+        - traefik.http.middlewares.portainer-http2https.redirectscheme.permanent=true
+        - traefik.http.routers.portainer-http.middlewares=portainer-http2https
+        - traefik.http.routers.edge-http.rule=Host(`edge.[Your URL].org`)
+        - traefik.http.routers.edge-http.service=edge
+        - traefik.http.routers.edge-http.entrypoints=http
+        - traefik.http.routers.edge-http.middlewares=https-redirect
+        - traefik.http.routers.edge-https.rule=Host(`edge.[Your URL].org`)
+        - traefik.http.routers.edge-https.service=edge
+        - traefik.http.routers.edge-https.entrypoints=https
+        - traefik.http.routers.edge-https.tls=true
+        - traefik.http.routers.edge-https.tls.certresolver=le
+        - traefik.http.services.edge.loadbalancer.server.port=8000
+        - traefik.http.middlewares.edge-http2https.redirectscheme.scheme=https
+        - traefik.http.middlewares.edge-http2https.redirectscheme.permanent=true
+        - traefik.http.routers.edge-http.middlewares=edge-http2https
+
+volumes:
+  # Create a volume to store the certificates, there is a constraint to make sure
+  # Traefik is always deployed to the same Docker node with the same volume containing
+  # the HTTPS certificates
+  traefik-public-certificates:
+  # Create a volume to store the Portainer data
+  portainer_data:
+networks:
+  # Use the previously created public network traefik-public, shared with other
+  # services that need to be publicly available via this Traefik
+  traefik-public:
+    external: true
+  # Another network for Portainer
+  agent_network:
+    external: true
+
