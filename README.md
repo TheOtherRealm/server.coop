@@ -1,4 +1,66 @@
 # Server.coop
-There is a lot of hype about the distributed web, but making use of this technology is very difficult for those without a technical background.  People use big corporate web service providers like Square Space, Wix, AWS, Google, ex. because they have a lower barrier to entry.  This project's initial purpose is to close this gap and enable people to have their data and websites not be dependent on the trust of a more powerful corporation that can dictate the terms and lock people in.  It is to broaden the base of people using decentralized technologies and show that not competing against people has inherent value of both monetary and societal natures.
 
-This will be a cooperatively owned web hosting system based on a distributed virtual server model.  The primary market to begin will be people working in the sci/tech field wanting a quick to setup and cheap system, college students, community groups (hackerspaces, 4-H groups, school groups, ex.), and other people wanting a private server.  They will be able to easily setup a website using popular WYSIWYG CMS (mainly Drupal to begin) or create something from scratch.  Their changes then will be incrementally backed up to a redundant decentralized storage platform (Sia, Filecoin).  Additionally, it will be easy to collaborate with people working in the same area, there will be a system to securely automated data gathering (IoT/Personal Biometrics/Network Metadata/Ex.), and spinup new developer virtual environments all without worrying about privacy or getting locked in to a proprietary system.  A secondary, or complementary, market will be crowdsourced medical device development (where people with unsolved medical problems can easily do their own research in collaboration with other people with the same problem without being dependent on the corporate healthcare industry).  This is a nascent field and therefore will not be the main focus until the rest of the infrastructure is set up for that reason.  Then when validation is complete and we will shift over to sensor and physical product design (see below), it will become a bigger priority to focus on.
+## Step 1
+Get a fresh ubuntu instance up and running with root access (VM or otherwise) that is accessible to the outside would.  If you have Xfinity with their provided modem, you are going to run into issues because they don't let you change your Public DNS IP, and so for some reason your website is only assessable externally.  This won't be an issue once you have scaled to multiple distributed computers with different IPs, or are running your server externally.  If you run into issues, try running it on a cheap virtual server provider and see if that works (of course, that will cost a little bit but there are ones that you can get for under 10 U.S. Dollars/Euros.
+SSH into your new server and make sure you are in the ubuntu home directory, then type `sudo su` to get into root mode.
+Also, make sure you have sub domains set up with your domain registrar for 'traeafik.yoururl.org', 'server.yoururl.org`, `next.yoururl.org`, 'portainer.yoururl.org`, and `phpmyadmin.yoururl.org`
+
+## Step 2
+Install Drupal and other requirements by running `./installStuff.sh`
+
+## Step 3
+Run `docker swarm init --advertise-addr ###.###.###.###`, replacing `###.###.###.###` with the public IP of your server (not 10.###.###.### or 192.168.###.###, if you are running your server locally, see caveat in Step 1 do a search for 'What is my IP') to setup swarm mode to make things distributed.
+
+## Step 4
+Run: `docker network create -d overlay --attachable traefik-public` to get an external Docker network
+
+## Step 5
+Run `export NODE_ID=$(docker info -f '{{.Swarm.NodeID}}')` to make the swarm IP an external variable.
+
+## Step 6
+Create a Docker tag in this node, so that Traefik is always deployed to the same node and uses the same volume: `docker node update --label-add traefik-public.traefik-public-certificates=true $NODE_ID`
+
+## Step 7
+Create a `secrets` folder below the servercoop git directory and create an .env file 
+
+## Step 8
+Create a file called `.env` with the following variables filled out:
+
+	MYSQL_ROOT_PASSWORD=
+	MYSQL_DATABASE=
+	MYSQL_USER=
+	MYSQL_PASSWORD=
+	NODE_ID=
+	EMAIL=
+	DOMAIN=traefik.yoururl.org
+	DOMAINSERVER=server.yoururl.org
+	USERNAME=admin
+	#traefik password
+	PASSWORD=
+	#run 
+	#openssl passwd -apr1 
+	#[Your Password]
+	#and enter the results here, it will look something like this 
+	#$apr1$89eqM5Ro$CxaFELthUKV21DpI3UTQO.
+	HASHED_PASSWORD=
+	COOKIE_DOMAIN=portainer.yoururl.org
+	INSECURE_COOKIE=false
+	#an email address
+	WHITELIST=
+	LOG_LEVEL=warning
+	LOG_FORMAT=text
+	LIFETIME=2592000 # 30 days
+	PMA_ABSOLUTE_URI=https://phpmyadmin.yoururl.org/
+	PMA_HOST=db
+
+## Step 9
+Inspect `traefik.yml` and edit the parts between  the [ … ]
+
+## Step 10
+Run `docker stack deploy -c traefik.yml traefik`
+
+## Step 11
+Go to https://traefik.[Your URL].org and check it out
+
+###
+Not Done!
