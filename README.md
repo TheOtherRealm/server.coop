@@ -1,7 +1,7 @@
 # Server.coop
 
 ## Step 1
-Get a fresh ubuntu instance up and running with root access (VM or otherwise) that is accessible to the outside would.  If you have Xfinity with their provided modem, you are going to run into issues because they don't let you change your Public DNS IP, and so for some reason your website is only assessable externally.  This won't be an issue once you have scaled to multiple distributed computers with different IPs, or are running your server externally.  If you run into issues, try running it on a cheap virtual server provider and see if that works (of course, that will cost a little bit but there are ones that you can get for under 10 U.S. Dollars/Euros.
+Get a fresh ubuntu instance up and running with root access (VM or otherwise) that is accessible to the outside world.  If you have Xfinity with their provided modem, you are going to run into issues because they don't let you change your Public DNS IP, and so for some reason your website is only assessable externally.  This won't be an issue once you have scaled to multiple distributed computers with different IPs, or are running your server externally.  If you run into issues, try running it on a cheap virtual server provider and see if that works (of course, that will cost a little bit but there are ones that you can get for under 10 U.S. Dollars/Euros.
 SSH into your new server and make sure you are in the ubuntu home directory, then type `sudo su` to get into root mode.
 Also, make sure you have sub domains set up with your domain registrar for 'traeafik.yoururl.org', 'server.yoururl.org`, `next.yoururl.org`, 'portainer.yoururl.org`, and `phpmyadmin.yoururl.org`
 
