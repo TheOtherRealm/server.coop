@@ -1,8 +1,11 @@
-version: '3.9'
 services:
   traefik:
-    # Use the latest v2.2.x Traefik image available
+    # Use the latest Traefik image available
     image: traefik:latest
+    # 👇do not enable this until you are sure everything is working or else you may run into Let's Encrypt rate limits, even in staging
+    # restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     env_file: ../secrets/.env
     ports:
       # Listen on port 80, default for HTTP, necessary to redirect to HTTPS
@@ -12,6 +15,7 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
+      - 1.1.1.1
     deploy:
       placement:
         constraints:
@@ -33,19 +37,19 @@ services:
         - traefik.constraint-label=traefik-public
         # admin-auth middleware with HTTP Basic auth
         # Using the variables in the .env
-        - traefik.http.middlewares.admin-auth.basicauth.users=[Your Hashed Password]
+        - traefik.http.middlewares.admin-auth.basicauth.users=admin:[Your Hashed Password]
         # https-redirect middleware to redirect HTTP to HTTPS
         # It can be re-used by other stacks in other Docker Compose files
         - traefik.http.middlewares.https-redirect.redirectscheme.scheme=https
         - traefik.http.middlewares.https-redirect.redirectscheme.permanent=true
         # traefik-http set up only to use the middleware to redirect to https
         # Uses the environment variable DOMAIN
-        - traefik.http.routers.traefik-public-http.rule=Host(`traefik.[Your URL].org`)
+        - traefik.http.routers.traefik-public-http.rule=Host(`traefik.[Your URL]`)
         - traefik.http.routers.traefik-public-http.entrypoints=http
         - traefik.http.routers.traefik-public-http.middlewares=https-redirect
         # traefik-https the actual router using HTTPS
         # Uses the environment variable DOMAIN
-        - traefik.http.routers.traefik-public-https.rule=Host(`traefik.[Your URL].org`)
+        - traefik.http.routers.traefik-public-https.rule=Host(`traefik.[Your URL]`)
         - traefik.http.routers.traefik-public-https.entrypoints=https
         - traefik.http.routers.traefik-public-https.tls=true
         # Use the special Traefik service api@internal with the web UI/Dashboard
@@ -54,11 +58,14 @@ services:
         - traefik.http.routers.traefik-public-https.tls.certresolver=le
         # Enable HTTP Basic auth, using the middleware created above
         - traefik.http.routers.traefik-public-https.middlewares=admin-auth
+        - traefik.http.routers.traefik-public-https.observability.metrics=true
+        - traefik.http.routers.traefik-public-https.observability.accessLogs=true
+        - traefik.http.routers.traefik-public-https.observability.tracing=true
         # Define the port inside of the Docker service to use
         - traefik.http.services.traefik-public.loadbalancer.server.port=8080
         ## Headers
         # Secure things by adding a number of security headers
-        - traefik.http.routers.traefik-public.middlewares=traefik-headers,middlewares-rate-limit@file,middlewares-basic-auth@file
+        - traefik.http.routers.traefik-public.middlewares=traefik-headers,middlewares-rate-limit@file
         - traefik.http.middlewares.traefik-headers.headers.accesscontrolallowmethods=GET, OPTIONS, PUT
         - traefik.http.middlewares.traefik-headers.headers.accesscontrolalloworiginlist=[Your URL]
         - traefik.http.middlewares.traefik-headers.headers.accesscontrolmaxage=100
@@ -74,16 +81,11 @@ services:
         - traefik.http.middlewares.traefik-headers.headers.stspreload=true
         - traefik.http.middlewares.traefik-headers.headers.forcestsheader=true
         - traefik.http.middlewares.traefik-headers.headers.framedeny=true
-  #      - traefik.http.middlewares.traefik-headers.headers.customframeoptionsvalue=SAMEORIGIN # This option overrides FrameDeny
         - traefik.http.middlewares.traefik-headers.headers.contenttypenosniff=true
         - traefik.http.middlewares.traefik-headers.headers.browserxssfilter=true
-  #      - traefik.http.middlewares.traefik-headers.headers.contentsecuritypolicy=frame-ancestors 'none'; object-src 'none'; base-uri 'none';
         - traefik.http.middlewares.traefik-headers.headers.referrerpolicy=same-origin
         - traefik.http.middlewares.traefik-headers.headers.featurepolicy=camera 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'; vr 'none';
         - traefik.http.middlewares.traefik-headers.headers.customresponseheaders.X-Robots-Tag=none,noarchive,nosnippet,notranslate,noimageindex,
-        # - traefik.http.middlewares.nextcloud-redirectregex.redirectRegex.permanent=true
-        # - traefik.http.middlewares.nextcloud-redirectregex.redirectRegex.regex="https://(.*)/.well-known/(card|cal)dav"
-        # - traefik.http.middlewares.nextcloud-redirectregex.redirectRegex.replacement = "https://$${1}/remote.php/dav/"
     volumes:
       # Add Docker as a mounted volume, so that Traefik can read the labels of other services
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -97,21 +99,25 @@ services:
       # Do not expose all Docker services, only the ones explicitly exposed
       - --providers.docker.exposedbydefault=false
       # Enable Docker Swarm mode
-      - --providers.docker.swarmmode=true
+      - --providers.swarm.endpoint=unix:///var/run/docker.sock
+      - --providers.swarm.exposedbydefault=false
       # Create an entrypoint http listening on port 80
       - --entrypoints.http.address=:80
       # Create an entrypoint https listening on port 443
       - --entrypoints.https.address=:443
       # Use staging during dev
+      # https://acme-staging-v02.api.letsencrypt.org/directory
+      # https://acme-v02.api.letsencrypt.org/directory
       - --certificatesresolvers.le.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
       # Create the certificate resolver le for Let's Encrypt, uses the environment variable EMAIL
-      - --certificatesresolvers.le.acme.email=[Your email]
+      - --certificatesresolvers.le.acme.email=[Your Email]
       # Store the Let's Encrypt certificates in the mounted volume
       - --certificatesresolvers.le.acme.storage=/certificates/acme.json
       # Use the TLS Challenge for Let's Encrypt
       - --certificatesresolvers.le.acme.tlschallenge=true    
       # Enable the access log, with HTTP requests
       - --accesslog
+      	
       # Enable the Traefik log, for configurations and errors
       - --log
       # Enable the Dashboard and API
@@ -132,7 +138,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/docker/volumes:/var/lib/docker/volumes
     networks:
-      - agent_network
+      - agent-network
     deploy:
       mode: global
       placement:
@@ -140,7 +146,6 @@ services:
   portainer:
     image: portainer/portainer-ce:latest
     command: -H tcp://tasks.agent:9001 --tlsskipverify
-    restart: unless-stopped
     ports:
       - "9443:9443"
       - "9000:9000"
@@ -149,7 +154,7 @@ services:
       - portainer_data:/data
     networks:
       - traefik-public
-      - agent_network
+      - agent-network
     deploy:
       mode: replicated
       replicas: 1
@@ -160,11 +165,11 @@ services:
         ## HTTP Routers
         - traefik.docker.network=traefik-public
         - traefik.constraint-label=traefik-public
-        - traefik.http.routers.portainer-http.rule=Host(`portainer.[Your URL].org`)
+        - traefik.http.routers.portainer-http.rule=Host(`portainer.[Your URL]`)
         - traefik.http.routers.portainer-http.service=portainer
         - traefik.http.routers.portainer-http.entrypoints=http
         - traefik.http.routers.portainer-http.middlewares=https-redirect
-        - traefik.http.routers.portainer-https.rule=Host(`portainer.[Your URL].org`)
+        - traefik.http.routers.portainer-https.rule=Host(`portainer.[Your URL]`)
         - traefik.http.routers.portainer-https.service=portainer
         - traefik.http.routers.portainer-https.entrypoints=https
         - traefik.http.routers.portainer-https.tls=true
@@ -173,11 +178,11 @@ services:
         - traefik.http.middlewares.portainer-http2https.redirectscheme.scheme=https
         - traefik.http.middlewares.portainer-http2https.redirectscheme.permanent=true
         - traefik.http.routers.portainer-http.middlewares=portainer-http2https
-        - traefik.http.routers.edge-http.rule=Host(`edge.[Your URL].org`)
+        - traefik.http.routers.edge-http.rule=Host(`edge.[Your URL]`)
         - traefik.http.routers.edge-http.service=edge
         - traefik.http.routers.edge-http.entrypoints=http
         - traefik.http.routers.edge-http.middlewares=https-redirect
-        - traefik.http.routers.edge-https.rule=Host(`edge.[Your URL].org`)
+        - traefik.http.routers.edge-https.rule=Host(`edge.[Your URL]`)
         - traefik.http.routers.edge-https.service=edge
         - traefik.http.routers.edge-https.entrypoints=https
         - traefik.http.routers.edge-https.tls=true
@@ -200,6 +205,5 @@ networks:
   traefik-public:
     external: true
   # Another network for Portainer
-  agent_network:
+  agent-network:
     external: true
-
